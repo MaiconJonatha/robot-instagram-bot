@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: robot-instagram-bot
+    env: node
+    buildCommand: npm install && npx playwright install chromium --with-deps
+    startCommand: node index.js
+    envVars:
+      - key: INSTAGRAM_USER
+        value: autouonouomioiuioiuis_neiwis
+      - key: INSTAGRAM_PASS
+        sync: false
+      - key: GOOGLE_COOKIES
+        sync: false

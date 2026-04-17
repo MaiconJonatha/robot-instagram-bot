@@ -1,0 +1,16 @@
+{
+  "name": "robot-instagram-bot",
+  "version": "1.0.0",
+  "description": "Auto-generate robot images with Gemini Flow and post to Instagram",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.42.0",
+    "node-cron": "^3.0.3",
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0"
+  }
+}
