@@ -11,3 +11,5 @@ services:
         sync: false
       - key: GOOGLE_COOKIES
         sync: false
+      - key: HF_TOKEN
+        sync: false

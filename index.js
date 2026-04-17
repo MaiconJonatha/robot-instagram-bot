@@ -1,22 +1,24 @@
 const { chromium } = require('playwright');
 const cron = require('node-cron');
-const https = require('https');
 const fs = require('fs');
-const path = require('path');
 const os = require('os');
+const path = require('path');
 
 const INSTAGRAM_USER = process.env.INSTAGRAM_USER || 'autouonouomioiuioiuis_neiwis';
 const INSTAGRAM_PASS = process.env.INSTAGRAM_PASS;
+const GOOGLE_COOKIES = process.env.GOOGLE_COOKIES; // JSON array of Google cookies
+
+const FLOW_PROJECT = 'https://labs.google/fx/pt/tools/flow/project/92966078-bb72-4c7b-aaf4-5c99bfe05549';
 
 const PROMPTS = [
-  'futuristic humanoid robot chrome armor neon blue lights high-tech laboratory cinematic 8K',
-  'advanced AI robot glowing red eyes cyberpunk city night rain reflections dramatic lighting photorealistic',
-  'sleek white robot assistant holographic displays floating around clean modern design studio lighting ultra detailed',
-  'giant mecha robot futuristic city skyline sunset epic scale cinematic ultra realistic',
-  'android robot human-like metallic face close-up portrait hyperrealistic dramatic lighting',
-  'robot scientist high-tech lab holograms test tubes photorealistic 8K cinematic',
-  'stealth robot shadows neon purple lights cyberpunk atmosphere ultra realistic',
-  'friendly AI robot companion glowing blue core minimalist white design studio lighting',
+  'A futuristic humanoid robot with chrome armor and neon blue lights in a high-tech laboratory, cinematic lighting, ultra realistic, 8K',
+  'An advanced AI robot with glowing red eyes in a cyberpunk city at night, rain reflections, dramatic lighting, photorealistic',
+  'A sleek white robot assistant with holographic displays floating around it, clean modern design, studio lighting, ultra detailed',
+  'A giant mecha robot standing over a futuristic city skyline at sunset, epic scale, cinematic, ultra realistic',
+  'An android robot with human-like metallic skin, close-up portrait, dramatic lighting, hyperrealistic, sharp focus',
+  'A robot scientist in a high-tech lab surrounded by holograms and test tubes, cinematic, photorealistic, 8K',
+  'A stealth combat robot emerging from shadows, neon purple accent lights, cyberpunk atmosphere, ultra realistic',
+  'A friendly companion robot with a glowing blue energy core, minimalist white and silver design, studio lighting',
 ];
 
 const CAPTIONS = [
@@ -30,33 +32,6 @@ const CAPTIONS = [
   '💙 Built to help. Designed to inspire. The friendly face of AI. 🤖 #FriendlyRobot #AICompanion #FutureTech #Innovation #RobotArt',
 ];
 
-function downloadImage(prompt) {
-  return new Promise((resolve, reject) => {
-    const encoded = encodeURIComponent(prompt);
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=1080&height=1080&nologo=true&seed=${Date.now()}`;
-    const tmpFile = path.join(os.tmpdir(), `robot_${Date.now()}.jpg`);
-    const file = fs.createWriteStream(tmpFile);
-
-    const request = https.get(url, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        https.get(response.headers.location, (r) => r.pipe(file));
-      } else {
-        response.pipe(file);
-      }
-      file.on('finish', () => {
-        file.close();
-        resolve(tmpFile);
-      });
-    });
-
-    request.on('error', reject);
-    request.setTimeout(60000, () => {
-      request.destroy();
-      reject(new Error('Image download timeout'));
-    });
-  });
-}
-
 async function generateAndPost() {
   console.log(`[${new Date().toISOString()}] Starting auto post...`);
 
@@ -64,106 +39,153 @@ async function generateAndPost() {
   const prompt = PROMPTS[idx];
   const caption = CAPTIONS[idx];
 
-  let imagePath;
-  try {
-    console.log(`Generating image: ${prompt}`);
-    imagePath = await downloadImage(prompt);
-    console.log(`Image saved to: ${imagePath}`);
-  } catch (err) {
-    console.error('Image generation failed:', err.message);
-    return;
-  }
-
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    downloadsPath: os.tmpdir(),
   });
+
+  let imagePath = null;
 
   try {
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 900 },
+      acceptDownloads: true,
     });
+
+    // Load Google session cookies
+    if (GOOGLE_COOKIES) {
+      const cookies = JSON.parse(GOOGLE_COOKIES);
+      await context.addCookies(cookies);
+      console.log(`Loaded ${cookies.length} Google cookies`);
+    }
 
     const page = await context.newPage();
 
+    // === STEP 1: Generate image with Google Flow ===
+    console.log('Opening Google Flow...');
+    await page.goto(FLOW_PROJECT, { waitUntil: 'networkidle', timeout: 90000 });
+    await page.waitForTimeout(4000);
+
+    // Check if we're logged in (Google may redirect to login)
+    if (page.url().includes('accounts.google.com')) {
+      throw new Error('Google session expired — update GOOGLE_COOKIES env var');
+    }
+
+    // Click the prompt input area
+    console.log('Typing prompt...');
+    const promptInput = await page.$('textarea, [contenteditable="true"], [placeholder*="criar"], [placeholder*="create"], [placeholder*="prompt"]')
+      || await page.$('div[role="textbox"]');
+
+    if (promptInput) {
+      await promptInput.click();
+    } else {
+      // Try clicking somewhere that looks like a text input
+      await page.click('[data-testid*="prompt"], .prompt-input, [aria-label*="prompt"]').catch(() => {});
+    }
+
+    await page.waitForTimeout(1000);
+    await page.keyboard.type(prompt, { delay: 30 });
+    await page.keyboard.press('Enter');
+
+    // Wait for image generation (up to 90 seconds)
+    console.log('Waiting for image generation...');
+    await page.waitForTimeout(15000);
+
+    // Wait for an image to appear
+    let generatedImg = null;
+    for (let i = 0; i < 6; i++) {
+      generatedImg = await page.$('img[src*="labs.google"], img[src*="storage.googleapis"]').catch(() => null);
+      if (generatedImg) break;
+      await page.waitForTimeout(10000);
+    }
+
+    if (!generatedImg) {
+      throw new Error('No generated image found after waiting');
+    }
+
+    // Click on the image to open it
+    await generatedImg.click();
+    await page.waitForTimeout(2000);
+
+    // Download the image
+    console.log('Downloading image...');
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }),
+      page.click('button:has-text("Baixar"), button:has-text("Download"), [aria-label*="Download"], [aria-label*="Baixar"]'),
+    ]);
+
+    await page.waitForTimeout(1000);
+
+    // Select quality if prompted
+    const qualityOption = await page.$('text=2K, text=1K, text=HD').catch(() => null);
+    if (qualityOption) await qualityOption.click();
+
+    imagePath = await download.path();
+    console.log(`Image downloaded to: ${imagePath}`);
+
+    // === STEP 2: Post to Instagram ===
     console.log('Opening Instagram...');
-    await page.goto('https://www.instagram.com/', { waitUntil: 'networkidle', timeout: 60000 });
-    await page.waitForTimeout(3000);
+    const igPage = await context.newPage();
+    await igPage.goto('https://www.instagram.com/', { waitUntil: 'networkidle', timeout: 60000 });
+    await igPage.waitForTimeout(3000);
 
     // Login if needed
-    const needsLogin = await page.isVisible('input[name="username"]').catch(() => false)
-      || await page.isVisible('text=Log in').catch(() => false);
-
+    const needsLogin = await igPage.isVisible('input[name="username"]').catch(() => false);
     if (needsLogin) {
       console.log('Logging into Instagram...');
-      await page.fill('input[name="username"]', INSTAGRAM_USER);
-      await page.fill('input[name="password"]', INSTAGRAM_PASS);
-      await page.click('button[type="submit"]');
-      await page.waitForTimeout(8000);
+      await igPage.fill('input[name="username"]', INSTAGRAM_USER);
+      await igPage.fill('input[name="password"]', INSTAGRAM_PASS);
+      await igPage.click('button[type="submit"]');
+      await igPage.waitForTimeout(8000);
 
-      // Dismiss "Save login info" prompt if present
-      const saveBtn = await page.$('text=Not now').catch(() => null)
-        || await page.$('text=Not Now').catch(() => null);
-      if (saveBtn) await saveBtn.click().catch(() => {});
-      await page.waitForTimeout(2000);
-
-      // Dismiss notifications prompt if present
-      const notNow = await page.$('text=Not Now').catch(() => null);
+      const notNow = await igPage.$('text=Not now, text=Not Now').catch(() => null);
       if (notNow) await notNow.click().catch(() => {});
-      await page.waitForTimeout(2000);
+      await igPage.waitForTimeout(2000);
+
+      const notNow2 = await igPage.$('text=Not Now').catch(() => null);
+      if (notNow2) await notNow2.click().catch(() => {});
+      await igPage.waitForTimeout(2000);
     }
 
     // Create new post
-    console.log('Creating new post...');
-    await page.click('[aria-label="New post"]');
-    await page.waitForTimeout(2000);
+    await igPage.click('[aria-label="New post"]');
+    await igPage.waitForTimeout(2000);
 
-    // Select "Post" option if menu appears
-    const postOption = await page.$('text=Post').catch(() => null);
-    if (postOption) {
-      await postOption.click();
-      await page.waitForTimeout(1000);
-    }
+    const postOption = await igPage.$('text=Post').catch(() => null);
+    if (postOption) { await postOption.click(); await igPage.waitForTimeout(1000); }
 
-    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 15000 });
+    const fileInput = await igPage.waitForSelector('input[type="file"]', { timeout: 15000 });
     await fileInput.setInputFiles(imagePath);
-    await page.waitForTimeout(4000);
+    await igPage.waitForTimeout(4000);
 
-    // Click Next twice
-    await page.click('text=Next').catch(() => page.click('[aria-label="Next"]'));
-    await page.waitForTimeout(2000);
-    await page.click('text=Next').catch(() => page.click('[aria-label="Next"]'));
-    await page.waitForTimeout(2000);
+    await igPage.click('text=Next').catch(() => igPage.click('[aria-label="Next"]'));
+    await igPage.waitForTimeout(2000);
+    await igPage.click('text=Next').catch(() => igPage.click('[aria-label="Next"]'));
+    await igPage.waitForTimeout(2000);
 
-    // Write caption
-    const captionBox = await page.$('[aria-label="Write a caption..."]')
-      || await page.$('textarea[placeholder]');
+    const captionBox = await igPage.$('[aria-label="Write a caption..."]') || await igPage.$('textarea[placeholder]');
     if (captionBox) {
       await captionBox.click();
-      await page.keyboard.type(caption, { delay: 30 });
+      await igPage.keyboard.type(caption, { delay: 30 });
     }
-    await page.waitForTimeout(1000);
+    await igPage.waitForTimeout(1000);
 
-    // Share
-    await page.click('text=Share').catch(() => page.click('[aria-label="Share"]'));
-    await page.waitForTimeout(15000);
+    await igPage.click('text=Share').catch(() => igPage.click('[aria-label="Share"]'));
+    await igPage.waitForTimeout(15000);
 
-    console.log(`[${new Date().toISOString()}] Post published successfully!`);
+    console.log(`[${new Date().toISOString()}] ✅ Post published successfully!`);
 
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] Error:`, err.message);
+    console.error(`[${new Date().toISOString()}] ❌ Error:`, err.message);
   } finally {
     await browser.close();
-    // Clean up temp image
-    if (imagePath && fs.existsSync(imagePath)) {
-      fs.unlinkSync(imagePath);
-    }
+    if (imagePath && fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
   }
 }
 
-// Schedule: 8h, 12h, 17h, 20h London (BST = UTC+1)
-// UTC: 7h, 11h, 16h, 19h
+// Schedule: 8h, 12h, 17h, 20h London (BST = UTC+1 → UTC: 7, 11, 16, 19)
 cron.schedule('0 7 * * *', generateAndPost, { timezone: 'UTC' });
 cron.schedule('0 11 * * *', generateAndPost, { timezone: 'UTC' });
 cron.schedule('0 16 * * *', generateAndPost, { timezone: 'UTC' });
