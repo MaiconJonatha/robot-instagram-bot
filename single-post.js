@@ -170,6 +170,12 @@ async function run() {
       await igPage.waitForTimeout(2000);
     }
 
+    // Dump page info for debugging
+    const pageTitle = await igPage.title().catch(() => '');
+    const pageText = await igPage.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
+    console.log(`IG page title: ${pageTitle}`);
+    console.log(`IG visible text (first 500 chars): ${pageText}`);
+
     const usernameInput = await igPage.$('input[name="username"]').catch(() => null);
     if (usernameInput) {
       console.log('Logging into Instagram...');
@@ -178,6 +184,8 @@ async function run() {
       await igPage.click('button[type="submit"]');
       await igPage.waitForTimeout(10000);
       console.log('Post-login URL:', igPage.url());
+      const postLoginText = await igPage.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
+      console.log(`Post-login text: ${postLoginText}`);
 
       // Dismiss "Save info" / "Not now" dialogs
       for (const t of ['Not now', 'Not Now', 'Agora não', 'Not Now']) {
