@@ -1,0 +1,36 @@
+name: Instagram Robot Bot
+
+on:
+  schedule:
+    # Hor√°rios em UTC (Londres BST = UTC+1, ent√£o -1h de cada hor√°rio local)
+    - cron: '0 7 * * *'   # 8h Londres
+    - cron: '0 11 * * *'  # 12h Londres
+    - cron: '0 16 * * *'  # 17h Londres
+    - cron: '0 19 * * *'  # 20h Londres
+  workflow_dispatch:  # Permite disparar manualmente do GitHub
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Run bot
+        env:
+          INSTAGRAM_USER: ${{ secrets.INSTAGRAM_USER }}
+          INSTAGRAM_PASS: ${{ secrets.INSTAGRAM_PASS }}
+          GOOGLE_COOKIES: ${{ secrets.GOOGLE_COOKIES }}
+        run: node single-post.js
