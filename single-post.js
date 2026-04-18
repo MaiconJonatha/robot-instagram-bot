@@ -3,11 +3,21 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// Load .env file if present (for local/Windows runs)
+// Load .env file if present (for local/Windows runs) — handles UTF-8/UTF-16 BOM
 const envFile = path.join(__dirname, '.env');
 if (fs.existsSync(envFile)) {
-  fs.readFileSync(envFile, 'utf8').split('\n').forEach((line) => {
-    const m = line.match(/^\s*([\w.]+)\s*=\s*(.*)\s*$/);
+  const buf = fs.readFileSync(envFile);
+  let content;
+  // Detect UTF-16 LE BOM (PowerShell default encoding)
+  if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
+    content = buf.slice(2).toString('utf16le');
+  } else if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+    content = buf.slice(3).toString('utf8');
+  } else {
+    content = buf.toString('utf8');
+  }
+  content.split(/\r?\n/).forEach((line) => {
+    const m = line.match(/^\s*([\w.]+)\s*=\s*(.*?)\s*$/);
     if (m && !process.env[m[1]]) {
       let v = m[2];
       if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
