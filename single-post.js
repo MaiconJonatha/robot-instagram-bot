@@ -226,10 +226,17 @@ async function run() {
     console.log(`IG page title: ${pageTitle}`);
     console.log(`IG visible text (first 500 chars): ${pageText}`);
 
-    // Wait a bit more for form to render
+    // Wait up to 15s for the login form to render
     await igPage.waitForTimeout(2000);
-    const usernameInput = await igPage.$(
-      'input[name="username"], input[aria-label*="username" i], input[aria-label*="Mobile" i], input[autocomplete="username"]'
+    // Debug: dump all inputs on page
+    const inputInfo = await igPage.$$eval('input', (nodes) => nodes.map((n) => ({
+      name: n.name, type: n.type, placeholder: n.placeholder, ariaLabel: n.getAttribute('aria-label'), autocomplete: n.autocomplete,
+    }))).catch(() => []);
+    console.log('Inputs on page:', JSON.stringify(inputInfo));
+
+    const usernameInput = await igPage.waitForSelector(
+      'input[name="username"], input[aria-label*="username" i], input[aria-label*="Mobile" i], input[autocomplete="username"], input[type="text"]',
+      { timeout: 15000 }
     ).catch(() => null);
     if (usernameInput) {
       console.log('Logging into Instagram...');
