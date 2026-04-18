@@ -86,43 +86,64 @@ async function run() {
 
     await page.waitForTimeout(1000);
     await page.keyboard.type(prompt, { delay: 30 });
-    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1500);
+
+    // Try to click a submit/generate button (Portuguese and English)
+    console.log('Looking for generate button...');
+    const generateBtn = await page.$(
+      'button:has-text("Criar"), button:has-text("Gerar"), button:has-text("Create"), button:has-text("Generate"), button[type="submit"], button[aria-label*="rompt"], button[aria-label*="Criar"], button[aria-label*="Gerar"]'
+    ).catch(() => null);
+    if (generateBtn) {
+      console.log('Clicking generate button');
+      await generateBtn.click();
+    } else {
+      console.log('No button found, trying Enter');
+      await page.keyboard.press('Enter');
+    }
 
     console.log('Waiting for image generation (up to 3 min)...');
-    await page.waitForTimeout(20000);
+    await page.waitForTimeout(25000);
 
-    let generatedImg = null;
-    const selectors = [
-      'img[src*="labs.google"]',
-      'img[src*="storage.googleapis"]',
-      'img[src*="googleusercontent"]',
-      'img[alt*="generated"]',
-      'img[alt*="imagen"]',
-      'img[alt*="image"]',
-      '[data-testid*="image"] img',
-      '[role="img"]',
-      'video',
-    ];
-    for (let i = 0; i < 18; i++) {
-      for (const sel of selectors) {
-        generatedImg = await page.$(sel).catch(() => null);
-        if (generatedImg) {
-          const src = await generatedImg.getAttribute('src').catch(() => '');
-          console.log(`Found media with selector "${sel}" (src: ${(src || '').slice(0, 80)})`);
-          break;
-        }
+    // Screenshot right after submit so we can see state
+    await page.screenshot({ path: '/tmp/flow_after_submit.png', fullPage: true }).catch(() => {});
+
+    const isAvatar = (src) => /\/a\/|avatar|profile/i.test(src || '');
+    const findGeneratedImage = async () => {
+      // Get all images, filter out avatars, pick the largest
+      const imgs = await page.$$eval('img', (nodes) =>
+        nodes.map((n) => ({
+          src: n.src || '',
+          alt: n.alt || '',
+          w: n.naturalWidth || n.width || 0,
+          h: n.naturalHeight || n.height || 0,
+        }))
+      ).catch(() => []);
+      const candidates = imgs.filter(
+        (im) => im.src && !/\/a\/|avatar|profile|googleusercontent\.com\/a\//i.test(im.src) && im.w >= 200 && im.h >= 200
+      );
+      candidates.sort((a, b) => b.w * b.h - a.w * a.h);
+      return candidates[0];
+    };
+
+    let found = null;
+    for (let i = 0; i < 16; i++) {
+      found = await findGeneratedImage();
+      if (found) {
+        console.log(`Found generated image: ${found.src.slice(0, 100)} (${found.w}x${found.h})`);
+        break;
       }
-      if (generatedImg) break;
-      console.log(`Attempt ${i + 1}/18: no image yet, waiting 10s...`);
+      console.log(`Attempt ${i + 1}/16: no generated image yet, waiting 10s...`);
       await page.waitForTimeout(10000);
     }
 
-    if (!generatedImg) {
-      const debugPath = '/tmp/flow_failure.png';
-      await page.screenshot({ path: debugPath, fullPage: true }).catch(() => {});
-      console.log(`Saved debug screenshot to ${debugPath}`);
+    if (!found) {
+      await page.screenshot({ path: '/tmp/flow_failure.png', fullPage: true }).catch(() => {});
+      console.log('Saved debug screenshot to /tmp/flow_failure.png');
       throw new Error('No generated image found after 3 min wait');
     }
+
+    // Click the actual image element matching that src
+    const generatedImg = await page.$(`img[src="${found.src}"]`);
 
     await generatedImg.click();
     await page.waitForTimeout(2000);
