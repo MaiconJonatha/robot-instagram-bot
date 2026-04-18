@@ -156,7 +156,7 @@ async function run() {
     await page.waitForTimeout(25000);
 
     // Screenshot right after submit so we can see state
-    await page.screenshot({ path: '/tmp/flow_after_submit.png', fullPage: true }).catch(() => {});
+    await page.screenshot({ path: path.join(os.tmpdir(), 'flow_after_submit.png'), fullPage: true }).catch(() => {});
 
     const isAvatar = (src) => /\/a\/|avatar|profile/i.test(src || '');
     const findGeneratedImage = async () => {
@@ -188,8 +188,8 @@ async function run() {
     }
 
     if (!found) {
-      await page.screenshot({ path: '/tmp/flow_failure.png', fullPage: true }).catch(() => {});
-      console.log('Saved debug screenshot to /tmp/flow_failure.png');
+      await page.screenshot({ path: path.join(os.tmpdir(), 'flow_failure.png'), fullPage: true }).catch(() => {});
+      console.log(`Saved debug screenshot to ${os.tmpdir()}/flow_failure.png`);
       throw new Error('No generated image found after 3 min wait');
     }
 
@@ -246,7 +246,7 @@ async function run() {
       await igPage.click('button[type="submit"]');
       await igPage.waitForTimeout(12000);
       console.log('Post-login URL:', igPage.url());
-      await igPage.screenshot({ path: '/tmp/ig_after_login.png', fullPage: true }).catch(() => {});
+      await igPage.screenshot({ path: path.join(os.tmpdir(), 'ig_after_login.png'), fullPage: true }).catch(() => {});
       const postLoginText = await igPage.evaluate(() => document.body?.innerText?.slice(0, 600) || '').catch(() => '');
       console.log(`Post-login text: ${postLoginText}`);
 
@@ -262,7 +262,7 @@ async function run() {
 
     await igPage.waitForTimeout(3000);
     // Take a screenshot to see state before posting
-    await igPage.screenshot({ path: '/tmp/ig_before_post.png', fullPage: true }).catch(() => {});
+    await igPage.screenshot({ path: path.join(os.tmpdir(), 'ig_before_post.png'), fullPage: true }).catch(() => {});
 
     // Try multiple selectors for New post button (IG changes these)
     console.log('Clicking New post...');
