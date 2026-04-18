@@ -244,9 +244,10 @@ async function run() {
       const passwordInput = await igPage.$('input[name="pass"], input[name="password"], input[type="password"]');
       await passwordInput.fill(INSTAGRAM_PASS);
       await igPage.click('button[type="submit"]');
-      await igPage.waitForTimeout(10000);
+      await igPage.waitForTimeout(12000);
       console.log('Post-login URL:', igPage.url());
-      const postLoginText = await igPage.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
+      await igPage.screenshot({ path: '/tmp/ig_after_login.png', fullPage: true }).catch(() => {});
+      const postLoginText = await igPage.evaluate(() => document.body?.innerText?.slice(0, 600) || '').catch(() => '');
       console.log(`Post-login text: ${postLoginText}`);
 
       // Dismiss "Save info" / "Not now" dialogs
