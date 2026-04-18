@@ -143,7 +143,12 @@ async function run() {
     }
 
     // Click the actual image element matching that src
-    const generatedImg = await page.$(`img[src="${found.src}"]`);
+    const generatedImg = await page.evaluateHandle((targetSrc) => {
+      return Array.from(document.querySelectorAll('img')).find((img) => img.src === targetSrc);
+    }, found.src);
+    if (!generatedImg || !(await generatedImg.asElement())) {
+      throw new Error('Could not locate generated image element to click');
+    }
 
     await generatedImg.click();
     await page.waitForTimeout(2000);
