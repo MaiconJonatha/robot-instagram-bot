@@ -1,11 +1,12 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
-const path = require('path');
 const os = require('os');
 
 const INSTAGRAM_USER = process.env.INSTAGRAM_USER || 'autouonouomioiuioiuis_neiwis';
 const INSTAGRAM_PASS = process.env.INSTAGRAM_PASS;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GOOGLE_COOKIES = process.env.GOOGLE_COOKIES;
+
+const FLOW_PROJECT = 'https://labs.google/fx/pt/tools/flow/project/92966078-bb72-4c7b-aaf4-5c99bfe05549';
 
 const PROMPTS = [
   'A futuristic humanoid robot with chrome armor and neon blue lights in a high-tech laboratory, cinematic lighting, ultra realistic, 8K',
@@ -29,6 +30,7 @@ const CAPTIONS = [
   '💙 Built to help. Designed to inspire. The friendly face of AI. 🤖 #FriendlyRobot #AICompanion #FutureTech #Innovation #RobotArt',
 ];
 
+// Allow forcing an index via POST_INDEX env var, otherwise random
 const idx = process.env.POST_INDEX !== undefined
   ? parseInt(process.env.POST_INDEX, 10) % PROMPTS.length
   : Math.floor(Math.random() * PROMPTS.length);
@@ -36,139 +38,135 @@ const idx = process.env.POST_INDEX !== undefined
 const prompt = PROMPTS[idx];
 const caption = CAPTIONS[idx];
 
-async function generateImage(promptText) {
-  console.log('Calling Gemini API (Imagen 3) for image...');
-
-  // Try Imagen 3 first (highest quality)
-  const imagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${GEMINI_API_KEY}`;
-  const imagenBody = JSON.stringify({
-    instances: [{ prompt: promptText }],
-    parameters: { sampleCount: 1, aspectRatio: '1:1' },
-  });
-
-  let res = await fetch(imagenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: imagenBody,
-  });
-
-  if (res.ok) {
-    const data = await res.json();
-    const b64 = data.predictions?.[0]?.bytesBase64Encoded;
-    if (b64) {
-      const p = path.join(os.tmpdir(), `robot_${Date.now()}.png`);
-      fs.writeFileSync(p, Buffer.from(b64, 'base64'));
-      console.log(`Imagen 3 image saved: ${p}`);
-      return p;
-    }
-  } else {
-    console.log(`Imagen 3 failed (${res.status}), trying Gemini 2.5 Flash Image...`);
-  }
-
-  // Fallback: Gemini 2.5 Flash Image (Nano Banana) — free tier
-  const flashUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${GEMINI_API_KEY}`;
-  const flashBody = JSON.stringify({
-    contents: [{ parts: [{ text: promptText }] }],
-  });
-
-  res = await fetch(flashUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: flashBody,
-  });
-
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Gemini Flash failed: ${res.status} ${t}`);
-  }
-
-  const data = await res.json();
-  const parts = data.candidates?.[0]?.content?.parts || [];
-  const imgPart = parts.find(p => p.inlineData || p.inline_data);
-  if (!imgPart) throw new Error('No image in Gemini response: ' + JSON.stringify(data).slice(0, 500));
-
-  const b64 = (imgPart.inlineData || imgPart.inline_data).data;
-  const p = path.join(os.tmpdir(), `robot_${Date.now()}.png`);
-  fs.writeFileSync(p, Buffer.from(b64, 'base64'));
-  console.log(`Gemini Flash image saved: ${p}`);
-  return p;
-}
-
 async function run() {
-  console.log(`[${new Date().toISOString()}] Starting post (idx=${idx})`);
+  console.log(`[${new Date().toISOString()}] Starting single post (index=${idx})...`);
   console.log(`Prompt: ${prompt}`);
 
-  if (!INSTAGRAM_PASS) { console.error('Missing INSTAGRAM_PASS'); process.exit(1); }
-  if (!GEMINI_API_KEY) { console.error('Missing GEMINI_API_KEY'); process.exit(1); }
-
-  let imagePath;
-  try {
-    imagePath = await generateImage(prompt);
-  } catch (err) {
-    console.error('Image generation failed:', err.message);
-    process.exit(1);
-  }
+  if (!INSTAGRAM_PASS) { console.error('Missing INSTAGRAM_PASS env var'); process.exit(1); }
+  if (!GOOGLE_COOKIES) { console.error('Missing GOOGLE_COOKIES env var'); process.exit(1); }
 
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    downloadsPath: os.tmpdir(),
   });
+
+  let imagePath = null;
 
   try {
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 900 },
+      acceptDownloads: true,
     });
+
+    const cookies = JSON.parse(GOOGLE_COOKIES);
+    await context.addCookies(cookies);
+    console.log(`Loaded ${cookies.length} Google cookies`);
+
     const page = await context.newPage();
 
-    console.log('Opening Instagram...');
-    await page.goto('https://www.instagram.com/', { waitUntil: 'networkidle', timeout: 60000 });
-    await page.waitForTimeout(3000);
-
-    const needsLogin = await page.isVisible('input[name="username"]').catch(() => false);
-    if (needsLogin) {
-      console.log('Logging in...');
-      await page.fill('input[name="username"]', INSTAGRAM_USER);
-      await page.fill('input[name="password"]', INSTAGRAM_PASS);
-      await page.click('button[type="submit"]');
-      await page.waitForTimeout(8000);
-
-      for (const text of ['Not now', 'Not Now', 'Agora não']) {
-        const b = await page.$(`text=${text}`).catch(() => null);
-        if (b) await b.click().catch(() => {});
-        await page.waitForTimeout(1500);
-      }
-    }
-
-    console.log('Creating post...');
-    await page.click('[aria-label="New post"], [aria-label="Nova publicação"]');
-    await page.waitForTimeout(2000);
-
-    const postBtn = await page.$('text=Post').catch(() => null);
-    if (postBtn) { await postBtn.click(); await page.waitForTimeout(1000); }
-
-    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 15000 });
-    await fileInput.setInputFiles(imagePath);
+    console.log('Opening Google Flow...');
+    await page.goto(FLOW_PROJECT, { waitUntil: 'networkidle', timeout: 90000 });
     await page.waitForTimeout(4000);
 
-    await page.click('text=Next').catch(() => page.click('[aria-label="Next"]'));
-    await page.waitForTimeout(2000);
-    await page.click('text=Next').catch(() => page.click('[aria-label="Next"]'));
-    await page.waitForTimeout(2000);
-
-    const captionBox = await page.$('[aria-label="Write a caption..."]') || await page.$('textarea[placeholder]');
-    if (captionBox) {
-      await captionBox.click();
-      await page.keyboard.type(caption, { delay: 30 });
+    if (page.url().includes('accounts.google.com')) {
+      throw new Error('Google session expired — update GOOGLE_COOKIES env var');
     }
-    await page.waitForTimeout(1000);
 
-    await page.click('text=Share').catch(() => page.click('[aria-label="Share"]'));
+    console.log('Typing prompt...');
+    const promptInput = await page.$('textarea, [contenteditable="true"], [placeholder*="criar"], [placeholder*="create"], [placeholder*="prompt"]')
+      || await page.$('div[role="textbox"]');
+
+    if (promptInput) {
+      await promptInput.click();
+    } else {
+      await page.click('[data-testid*="prompt"], .prompt-input, [aria-label*="prompt"]').catch(() => {});
+    }
+
+    await page.waitForTimeout(1000);
+    await page.keyboard.type(prompt, { delay: 30 });
+    await page.keyboard.press('Enter');
+
+    console.log('Waiting for image generation...');
     await page.waitForTimeout(15000);
 
-    console.log(`[${new Date().toISOString()}] ✅ Posted: ${caption.slice(0, 60)}...`);
+    let generatedImg = null;
+    for (let i = 0; i < 6; i++) {
+      generatedImg = await page.$('img[src*="labs.google"], img[src*="storage.googleapis"]').catch(() => null);
+      if (generatedImg) break;
+      await page.waitForTimeout(10000);
+    }
+
+    if (!generatedImg) throw new Error('No generated image found after waiting');
+
+    await generatedImg.click();
+    await page.waitForTimeout(2000);
+
+    console.log('Downloading image...');
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }),
+      page.click('button:has-text("Baixar"), button:has-text("Download"), [aria-label*="Download"], [aria-label*="Baixar"]'),
+    ]);
+
+    await page.waitForTimeout(1000);
+    const qualityOption = await page.$('text=2K, text=1K, text=HD').catch(() => null);
+    if (qualityOption) await qualityOption.click();
+
+    imagePath = await download.path();
+    console.log(`Image downloaded to: ${imagePath}`);
+
+    console.log('Opening Instagram...');
+    const igPage = await context.newPage();
+    await igPage.goto('https://www.instagram.com/', { waitUntil: 'networkidle', timeout: 60000 });
+    await igPage.waitForTimeout(3000);
+
+    const needsLogin = await igPage.isVisible('input[name="username"]').catch(() => false);
+    if (needsLogin) {
+      console.log('Logging into Instagram...');
+      await igPage.fill('input[name="username"]', INSTAGRAM_USER);
+      await igPage.fill('input[name="password"]', INSTAGRAM_PASS);
+      await igPage.click('button[type="submit"]');
+      await igPage.waitForTimeout(8000);
+
+      const notNow = await igPage.$('text=Not now, text=Not Now').catch(() => null);
+      if (notNow) await notNow.click().catch(() => {});
+      await igPage.waitForTimeout(2000);
+
+      const notNow2 = await igPage.$('text=Not Now').catch(() => null);
+      if (notNow2) await notNow2.click().catch(() => {});
+      await igPage.waitForTimeout(2000);
+    }
+
+    await igPage.click('[aria-label="New post"]');
+    await igPage.waitForTimeout(2000);
+
+    const postOption = await igPage.$('text=Post').catch(() => null);
+    if (postOption) { await postOption.click(); await igPage.waitForTimeout(1000); }
+
+    const fileInput = await igPage.waitForSelector('input[type="file"]', { timeout: 15000 });
+    await fileInput.setInputFiles(imagePath);
+    await igPage.waitForTimeout(4000);
+
+    await igPage.click('text=Next').catch(() => igPage.click('[aria-label="Next"]'));
+    await igPage.waitForTimeout(2000);
+    await igPage.click('text=Next').catch(() => igPage.click('[aria-label="Next"]'));
+    await igPage.waitForTimeout(2000);
+
+    const captionBox = await igPage.$('[aria-label="Write a caption..."]') || await igPage.$('textarea[placeholder]');
+    if (captionBox) {
+      await captionBox.click();
+      await igPage.keyboard.type(caption, { delay: 30 });
+    }
+    await igPage.waitForTimeout(1000);
+
+    await igPage.click('text=Share').catch(() => igPage.click('[aria-label="Share"]'));
+    await igPage.waitForTimeout(15000);
+
+    console.log(`[${new Date().toISOString()}] ✅ Post published successfully! Caption: ${caption}`);
+
   } catch (err) {
-    console.error('Error:', err.message);
+    console.error(`[${new Date().toISOString()}] ❌ Error:`, err.message);
     process.exit(1);
   } finally {
     await browser.close();
