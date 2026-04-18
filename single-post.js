@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const os = require('os');
+const path = require('path');
 
 const INSTAGRAM_USER = process.env.INSTAGRAM_USER || 'autouonouomioiuioiuis_neiwis';
 const INSTAGRAM_PASS = process.env.INSTAGRAM_PASS;
@@ -142,29 +143,18 @@ async function run() {
       throw new Error('No generated image found after 3 min wait');
     }
 
-    // Click the actual image element matching that src
-    const generatedImg = await page.evaluateHandle((targetSrc) => {
-      return Array.from(document.querySelectorAll('img')).find((img) => img.src === targetSrc);
+    // Fetch the image directly using the browser context (same cookies)
+    console.log('Fetching image bytes from URL...');
+    const imgBuffer = await page.evaluate(async (url) => {
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = await res.arrayBuffer();
+      return Array.from(new Uint8Array(buf));
     }, found.src);
-    if (!generatedImg || !(await generatedImg.asElement())) {
-      throw new Error('Could not locate generated image element to click');
-    }
 
-    await generatedImg.click();
-    await page.waitForTimeout(2000);
-
-    console.log('Downloading image...');
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 30000 }),
-      page.click('button:has-text("Baixar"), button:has-text("Download"), [aria-label*="Download"], [aria-label*="Baixar"]'),
-    ]);
-
-    await page.waitForTimeout(1000);
-    const qualityOption = await page.$('text=2K, text=1K, text=HD').catch(() => null);
-    if (qualityOption) await qualityOption.click();
-
-    imagePath = await download.path();
-    console.log(`Image downloaded to: ${imagePath}`);
+    imagePath = path.join(os.tmpdir(), `robot_${Date.now()}.png`);
+    fs.writeFileSync(imagePath, Buffer.from(imgBuffer));
+    console.log(`Image saved: ${imagePath} (${imgBuffer.length} bytes)`);
 
     console.log('Opening Instagram...');
     const igPage = await context.newPage();
