@@ -243,7 +243,7 @@ async function run() {
       await usernameInput.fill(INSTAGRAM_USER);
       const passwordInput = await igPage.$('input[name="pass"], input[name="password"], input[type="password"]');
       await passwordInput.fill(INSTAGRAM_PASS);
-      await igPage.click('button[type="submit"], input[type="submit"]');
+      await passwordInput.press('Enter');
       await igPage.waitForTimeout(12000);
       console.log('Post-login URL:', igPage.url());
       await igPage.screenshot({ path: path.join(os.tmpdir(), 'ig_after_login.png'), fullPage: true }).catch(() => {});
