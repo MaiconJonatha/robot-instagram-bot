@@ -98,6 +98,33 @@ async function run() {
       throw new Error('Google session expired — update GOOGLE_COOKIES env var');
     }
 
+    // Dismiss Google cookie consent banner if present
+    console.log('Dismissing cookie banner if present...');
+    for (const sel of [
+      'button:has-text("Aceitar todos")',
+      'button:has-text("Accept all")',
+      'button:has-text("Rejeitar todos")',
+      'button:has-text("Reject all")',
+      'button[aria-label*="Aceitar"]',
+      'button[aria-label*="Accept"]',
+      '#glue-cookie-notification-bar-1 button',
+      '.glue-cookie-notification-bar button',
+    ]) {
+      const btn = await page.$(sel).catch(() => null);
+      if (btn) {
+        console.log(`Clicking cookie banner button: ${sel}`);
+        await btn.click().catch(() => {});
+        await page.waitForTimeout(1500);
+        break;
+      }
+    }
+    // Hide the banner via JS if still there
+    await page.evaluate(() => {
+      const bar = document.getElementById('glue-cookie-notification-bar-1')
+        || document.querySelector('.glue-cookie-notification-bar');
+      if (bar) bar.remove();
+    }).catch(() => {});
+
     console.log('Typing prompt...');
     const promptInput = await page.$('textarea, [contenteditable="true"], [placeholder*="criar"], [placeholder*="create"], [placeholder*="prompt"]')
       || await page.$('div[role="textbox"]');
