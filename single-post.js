@@ -88,17 +88,41 @@ async function run() {
     await page.keyboard.type(prompt, { delay: 30 });
     await page.keyboard.press('Enter');
 
-    console.log('Waiting for image generation...');
-    await page.waitForTimeout(15000);
+    console.log('Waiting for image generation (up to 3 min)...');
+    await page.waitForTimeout(20000);
 
     let generatedImg = null;
-    for (let i = 0; i < 6; i++) {
-      generatedImg = await page.$('img[src*="labs.google"], img[src*="storage.googleapis"]').catch(() => null);
+    const selectors = [
+      'img[src*="labs.google"]',
+      'img[src*="storage.googleapis"]',
+      'img[src*="googleusercontent"]',
+      'img[alt*="generated"]',
+      'img[alt*="imagen"]',
+      'img[alt*="image"]',
+      '[data-testid*="image"] img',
+      '[role="img"]',
+      'video',
+    ];
+    for (let i = 0; i < 18; i++) {
+      for (const sel of selectors) {
+        generatedImg = await page.$(sel).catch(() => null);
+        if (generatedImg) {
+          const src = await generatedImg.getAttribute('src').catch(() => '');
+          console.log(`Found media with selector "${sel}" (src: ${(src || '').slice(0, 80)})`);
+          break;
+        }
+      }
       if (generatedImg) break;
+      console.log(`Attempt ${i + 1}/18: no image yet, waiting 10s...`);
       await page.waitForTimeout(10000);
     }
 
-    if (!generatedImg) throw new Error('No generated image found after waiting');
+    if (!generatedImg) {
+      const debugPath = '/tmp/flow_failure.png';
+      await page.screenshot({ path: debugPath, fullPage: true }).catch(() => {});
+      console.log(`Saved debug screenshot to ${debugPath}`);
+      throw new Error('No generated image found after 3 min wait');
+    }
 
     await generatedImg.click();
     await page.waitForTimeout(2000);
