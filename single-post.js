@@ -226,12 +226,17 @@ async function run() {
     console.log(`IG page title: ${pageTitle}`);
     console.log(`IG visible text (first 500 chars): ${pageText}`);
 
-    const usernameInput = await igPage.$('input[name="username"]').catch(() => null);
+    // Wait a bit more for form to render
+    await igPage.waitForTimeout(2000);
+    const usernameInput = await igPage.$(
+      'input[name="username"], input[aria-label*="username" i], input[aria-label*="Mobile" i], input[autocomplete="username"]'
+    ).catch(() => null);
     if (usernameInput) {
       console.log('Logging into Instagram...');
-      await igPage.fill('input[name="username"]', INSTAGRAM_USER);
-      await igPage.fill('input[name="password"]', INSTAGRAM_PASS);
-      await igPage.click('button[type="submit"]');
+      await usernameInput.fill(INSTAGRAM_USER);
+      const passwordInput = await igPage.$('input[name="password"], input[type="password"]');
+      await passwordInput.fill(INSTAGRAM_PASS);
+      await igPage.click('button[type="submit"], button:has-text("Log in"), button:has-text("Entrar")');
       await igPage.waitForTimeout(10000);
       console.log('Post-login URL:', igPage.url());
       const postLoginText = await igPage.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
