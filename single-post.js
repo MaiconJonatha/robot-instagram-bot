@@ -156,33 +156,54 @@ async function run() {
 
     console.log('Opening Instagram...');
     const igPage = await context.newPage();
-    await igPage.goto('https://www.instagram.com/', { waitUntil: 'networkidle', timeout: 60000 });
-    await igPage.waitForTimeout(3000);
+    // Go directly to login page to be safe
+    await igPage.goto('https://www.instagram.com/accounts/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await igPage.waitForTimeout(4000);
 
-    const needsLogin = await igPage.isVisible('input[name="username"]').catch(() => false);
-    if (needsLogin) {
+    console.log('Page URL after load:', igPage.url());
+
+    // Dismiss cookie banner if present
+    const cookieBtn = await igPage.$('button:has-text("Allow all cookies"), button:has-text("Accept all"), button:has-text("Aceitar todos"), button:has-text("Permitir todos")').catch(() => null);
+    if (cookieBtn) {
+      console.log('Accepting cookies');
+      await cookieBtn.click().catch(() => {});
+      await igPage.waitForTimeout(2000);
+    }
+
+    const usernameInput = await igPage.$('input[name="username"]').catch(() => null);
+    if (usernameInput) {
       console.log('Logging into Instagram...');
       await igPage.fill('input[name="username"]', INSTAGRAM_USER);
       await igPage.fill('input[name="password"]', INSTAGRAM_PASS);
       await igPage.click('button[type="submit"]');
-      await igPage.waitForTimeout(8000);
+      await igPage.waitForTimeout(10000);
+      console.log('Post-login URL:', igPage.url());
 
-      const notNow = await igPage.$('text=Not now, text=Not Now').catch(() => null);
-      if (notNow) await notNow.click().catch(() => {});
-      await igPage.waitForTimeout(2000);
-
-      const notNow2 = await igPage.$('text=Not Now').catch(() => null);
-      if (notNow2) await notNow2.click().catch(() => {});
-      await igPage.waitForTimeout(2000);
+      // Dismiss "Save info" / "Not now" dialogs
+      for (const t of ['Not now', 'Not Now', 'Agora não', 'Not Now']) {
+        const b = await igPage.$(`button:has-text("${t}")`).catch(() => null);
+        if (b) await b.click().catch(() => {});
+        await igPage.waitForTimeout(1500);
+      }
+    } else {
+      console.log('Already logged in or login form not shown');
     }
 
-    await igPage.click('[aria-label="New post"]');
-    await igPage.waitForTimeout(2000);
+    await igPage.waitForTimeout(3000);
+    // Take a screenshot to see state before posting
+    await igPage.screenshot({ path: '/tmp/ig_before_post.png', fullPage: true }).catch(() => {});
+
+    // Try multiple selectors for New post button (IG changes these)
+    console.log('Clicking New post...');
+    const newPostSel = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], a[href="/create/select/"], [aria-label="New post"], [aria-label="Nova publicação"]';
+    await igPage.waitForSelector(newPostSel, { timeout: 15000 });
+    await igPage.click(newPostSel);
+    await igPage.waitForTimeout(3000);
 
     const postOption = await igPage.$('text=Post').catch(() => null);
-    if (postOption) { await postOption.click(); await igPage.waitForTimeout(1000); }
+    if (postOption) { await postOption.click(); await igPage.waitForTimeout(1500); }
 
-    const fileInput = await igPage.waitForSelector('input[type="file"]', { timeout: 15000 });
+    const fileInput = await igPage.waitForSelector('input[type="file"]', { timeout: 20000 });
     await fileInput.setInputFiles(imagePath);
     await igPage.waitForTimeout(4000);
 
