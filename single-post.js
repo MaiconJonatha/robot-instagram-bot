@@ -143,18 +143,16 @@ async function run() {
       throw new Error('No generated image found after 3 min wait');
     }
 
-    // Fetch the image directly using the browser context (same cookies)
+    // Fetch the image using Playwright's request API (uses cookies, bypasses CORS)
     console.log('Fetching image bytes from URL...');
-    const imgBuffer = await page.evaluate(async (url) => {
-      const res = await fetch(url, { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
-      return Array.from(new Uint8Array(buf));
-    }, found.src);
-
+    const response = await context.request.get(found.src);
+    if (!response.ok()) {
+      throw new Error(`Image fetch failed: HTTP ${response.status()}`);
+    }
+    const buf = await response.body();
     imagePath = path.join(os.tmpdir(), `robot_${Date.now()}.png`);
-    fs.writeFileSync(imagePath, Buffer.from(imgBuffer));
-    console.log(`Image saved: ${imagePath} (${imgBuffer.length} bytes)`);
+    fs.writeFileSync(imagePath, buf);
+    console.log(`Image saved: ${imagePath} (${buf.length} bytes)`);
 
     console.log('Opening Instagram...');
     const igPage = await context.newPage();
