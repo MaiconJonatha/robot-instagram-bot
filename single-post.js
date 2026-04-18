@@ -3,6 +3,19 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Load .env file if present (for local/Windows runs)
+const envFile = path.join(__dirname, '.env');
+if (fs.existsSync(envFile)) {
+  fs.readFileSync(envFile, 'utf8').split('\n').forEach((line) => {
+    const m = line.match(/^\s*([\w.]+)\s*=\s*(.*)\s*$/);
+    if (m && !process.env[m[1]]) {
+      let v = m[2];
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      process.env[m[1]] = v;
+    }
+  });
+}
+
 const INSTAGRAM_USER = process.env.INSTAGRAM_USER || 'autouonouomioiuioiuis_neiwis';
 const INSTAGRAM_PASS = process.env.INSTAGRAM_PASS;
 const GOOGLE_COOKIES = process.env.GOOGLE_COOKIES;
